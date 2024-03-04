@@ -5,6 +5,10 @@ from math import floor
 from nltk.tokenize import word_tokenize
 from collections import Counter
 import numpy as np
+from torch.autograd import Variable
+from model import Batch
+
+
 
 UNK = 0  # unknow word-id
 PAD = 1  # padding word-id
@@ -43,8 +47,8 @@ class PrepData:
         self.train_en, self.train_cn = self.word_to_id(self.train_en, self.train_cn, self.en_word_index_map, self.cn_word_index_map, sort=True)
         self.eval_en, self.eval_cn = self.word_to_id(self.eval_en, self.eval_cn, self.en_word_index_map, self.cn_word_index_map, sort=True)
         # 04. batch + padding + mask
-
-        pass
+        # self.train_data = self.split_batch(self.train_en, self.train_cn, batch_size=BATCH_SIZE)
+        # self.eval_data = self.split_batch(self.eval_en, self.eval_cn, batch_size=BATCH_SIZE)
 
     def build_dict(self, sentences: list[list[str]], max_words: int=5000):
         """build dictionary as {word: index}
@@ -103,11 +107,22 @@ class PrepData:
 
     def split_batch(
         self,
-        en: list[list[str]],
-        cn: list[list[str]],
+        en: list[list[int]],
+        cn: list[list[int]],
         batch_size: int,
         shuffle: bool = True
-    ):
+    ) -> list[Batch]:
+        """_summary_
+
+        Args:
+            en (list[list[int]]): List of token id lists from word_to_id for src language
+            cn (list[list[int]]): List of token id lists from word_to_id for target language
+            batch_size (int): batch size
+            shuffle (bool, optional): _description_. Defaults to True.
+
+        Returns:
+            list[Batch]: _description_
+        """
         # get starting indices of each batch based on English sentences
         idx_list = np.arange(0, len(en), batch_size)
         if shuffle:
@@ -126,7 +141,8 @@ class PrepData:
             print("en after padding: ", batch_en)
             batch_cn = add_padding(batch_cn)
             batches.append(Batch(batch_en, batch_cn))
-
+            # print(batch_en)
+            # print(batch_cn)
         return batches
 
     def load_raw_data(self, path, topk=10):
@@ -208,8 +224,8 @@ if __name__ == "__main__":
     en, cn = dataloader.load_data("data/train.txt")
     w2i_en, i2w_en, vocab_size_ne = dataloader.build_dict(sentences=en, max_words=100)
     w2i_cn, i2w_cn, vocab_size_cn = dataloader.build_dict(sentences=cn, max_words=100)
-    k_debug = 5
+    k_debug = 1000
     train_en, train_cn = dataloader.word_to_id(en[:k_debug], cn[:k_debug], w2i_en, w2i_cn, sort=True)
-
-    print("convert English sentences to ids", en[:k_debug], "\n", train_en)
+    _ = dataloader.split_batch(train_en, train_cn, BATCH_SIZE)
+    # print("convert English sentences to ids", en[:k_debug], "\n", train_en)
     # print("convert Chinese sentences to ids", cn[:k_debug], "\n", train_cn)
