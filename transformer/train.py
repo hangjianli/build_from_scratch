@@ -5,12 +5,26 @@ from math import floor
 from nltk.tokenize import word_tokenize
 from collections import Counter
 import numpy as np
-# batch size:
-# sequence length:
-# embedding dimension (d_model):
+
+UNK = 0  # unknow word-id
+PAD = 1  # padding word-id
+BATCH_SIZE = 64
+
+EPOCHS  = 2
+LAYERS  = 3
+H_NUM   = 8
+D_MODEL = 128 # embedding dimension (d_model)
+D_FF    = 256
+DROPOUT = 0.1
+MAX_LENGTH = 60 # sequence length (number of tokens in a training sentence)
 # vocab size:
 
-BATCH_SIZE = 64
+
+def add_padding(batch, padding=0):
+    """Add padding to a batch data"""
+    L = [len(sent) for sent in batch]
+    maxL = max(L)
+    return np.array([np.concatenate([x, [padding] * (maxL - len(x))]) if len(x) < maxL else x for x in batch])
 
 class PrepData:
     def __init__(
@@ -25,10 +39,11 @@ class PrepData:
         # 02. Build dictionary: en and cn
         self.en_word_index_map, self.en_index_word_map, self.en_vocab_size = self.build_dict(self.train_en)
         self.cn_word_index_map, self.cn_index_word_map, self.cn_vocab_size = self.build_dict(self.train_cn)
-        # 03. word to id by dictionary Use input word list length to sort, reduce padding
-        self.train_en, self.train_cn = self.word_to_id(self.train_en, self.train_cn, self.en_word_index_map, self.cn_word_index_map)
-        self.eval_en, self.eval_cn = self.word_to_id(self.eval_en, self.eval_cn, self.en_word_index_map, self.cn_word_index_map)
+        # 03. word to id by dictionary. Use number of tokens to sort the sentences(ids), reduce padding
+        self.train_en, self.train_cn = self.word_to_id(self.train_en, self.train_cn, self.en_word_index_map, self.cn_word_index_map, sort=True)
+        self.eval_en, self.eval_cn = self.word_to_id(self.eval_en, self.eval_cn, self.en_word_index_map, self.cn_word_index_map, sort=True)
         # 04. batch + padding + mask
+
         pass
 
     def build_dict(self, sentences: list[list[str]], max_words: int=5000):
@@ -43,9 +58,9 @@ class PrepData:
             for w in sentence:
                 word_counter[w] += 1
 
-        vocab = word_counter.most_common(max_words)
+        vocab = word_counter.most_common(max_words) # list of (token, cnt)
         vocab_size = len(vocab) + 2
-        word_index_map = {w[0]: ind + 2 for ind, w in enumerate(vocab)}
+        word_index_map = {w[0]: ind + 2 for ind, w in enumerate(vocab)} # get the token: id map
         word_index_map['UNK'] = 0
         word_index_map['PAD'] = 1
         index_word_map = {ind: w for w, ind in word_index_map.items()}
@@ -66,19 +81,24 @@ class PrepData:
             cn (list[list[str]]): _description_
             en_dict (dict): _description_
             cn_dict (dict): _description_
-            sort (bool, optional): _description_. Defaults to True.
+            sort (bool, optional): Sort the input sentence list based on length. Defaults to True.
 
         Returns:
             _type_: _description_
         """
-        n = len(en)
+        # convert token in sentences to indices.
         out_en_ids = [[en_dict.get(w, 0) for w in sent] for sent in en]
         out_cn_ids = [[cn_dict.get(w, 0) for w in sent] for sent in cn]
 
         def len_argsort(seq):
-            return
+            """return sorted indices"""
+            return sorted(range(len(seq)), key=lambda x: len(seq[x]))
+
         if sort:
-            sorted_index = len_argsort(out_en_ids)
+            # sort the sentences based on number of tokens
+            sorted_index = len_argsort(out_en_ids) # Only English
+            out_en_ids = [out_en_ids[i] for i in sorted_index]
+            out_cn_ids = [out_cn_ids[i] for i in sorted_index]
         return out_en_ids, out_cn_ids
 
     def split_batch(
@@ -88,11 +108,26 @@ class PrepData:
         batch_size: int,
         shuffle: bool = True
     ):
+        # get starting indices of each batch based on English sentences
         idx_list = np.arange(0, len(en), batch_size)
         if shuffle:
+            # shuffle the start points
             np.random.shuffle(idx_list)
+        batch_indices = []
+        for idx in idx_list:
+            batch_indices.append(np.arange(idx, min(idx + batch_size, len(en))))
 
-        return
+        batches = []
+        for batch_index in batch_indices:
+            batch_en = [en[index] for index in batch_index]
+            batch_cn = [cn[index] for index in batch_index]
+            print("en before padding: ", batch_en)
+            batch_en = add_padding(batch_en)
+            print("en after padding: ", batch_en)
+            batch_cn = add_padding(batch_cn)
+            batches.append(Batch(batch_en, batch_cn))
+
+        return batches
 
     def load_raw_data(self, path, topk=10):
         """
@@ -155,6 +190,9 @@ class PrepData:
                 # cn.append(" ".join([w for w in line[1]]))
         return en, cn
 
+
+
+
 if __name__ == "__main__":
     dataloader = PrepData(train_file='data/train.txt', eval_file='data/test.txt')
     # path = "data/cmn.txt"
@@ -167,9 +205,11 @@ if __name__ == "__main__":
     #     test_path="data/test.txt",
     #     topk=100
     # )
-    en, cn = dataloader.load_data("data/test.txt")
-    w2i, i2w, vocab_size = dataloader.build_dict(sentences=cn[:2], max_words=100)
-    # print(cn)
-    print(cn[:2])
-    print(w2i)
-    print(i2w)
+    en, cn = dataloader.load_data("data/train.txt")
+    w2i_en, i2w_en, vocab_size_ne = dataloader.build_dict(sentences=en, max_words=100)
+    w2i_cn, i2w_cn, vocab_size_cn = dataloader.build_dict(sentences=cn, max_words=100)
+    k_debug = 5
+    train_en, train_cn = dataloader.word_to_id(en[:k_debug], cn[:k_debug], w2i_en, w2i_cn, sort=True)
+
+    print("convert English sentences to ids", en[:k_debug], "\n", train_en)
+    # print("convert Chinese sentences to ids", cn[:k_debug], "\n", train_cn)
