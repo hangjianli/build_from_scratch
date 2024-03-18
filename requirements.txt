@@ -12,3 +12,5 @@ torchvision
 torch
 torchvision
 torchaudio
+nltk
+stable-baselines3[extra]
